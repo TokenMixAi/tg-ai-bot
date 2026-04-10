@@ -39,9 +39,12 @@ python bot.py
 
 - **Streaming** — responses appear word-by-word, not after a long wait
 - **Vision** — send a photo with a question, the bot understands it
+- **Voice messages** — send a voice note, it gets transcribed and answered
+- **Markdown** — code blocks, bold, and other formatting render properly
+- **Group chat** — in groups, responds only when @mentioned or replied to
 - **Model switching** — `/model gpt-4o` to try a different model anytime
 - **Conversation memory** — keeps context across messages (configurable depth)
-- **Multi-user** — works for groups or shared bots, each user has their own history
+- **Long replies** — responses over 4096 chars are split across multiple messages
 - **Access control** — optionally restrict to specific Telegram user IDs
 
 ## Commands

@@ -2,6 +2,7 @@
 import os
 import sys
 import io
+import re
 import time
 import base64
 import logging
@@ -10,6 +11,7 @@ from PIL import Image
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 from telegram import Update
+from telegram.constants import ParseMode, ChatType
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 load_dotenv()
@@ -25,9 +27,9 @@ SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT", "You are a helpful assistant.")
 log = logging.getLogger(__name__)
 client = AsyncOpenAI(api_key=API_KEY, base_url=BASE_URL)
 
-# per-user state (in-memory, resets on restart)
 histories = {}
 user_models = {}
+_bot_username = None
 
 
 def allowed(uid):
@@ -43,8 +45,100 @@ def get_hist(uid):
     return histories[uid]
 
 
+def should_reply(update: Update) -> bool:
+    """In groups, only reply when @mentioned or replied to."""
+    msg = update.message
+    if msg.chat.type == ChatType.PRIVATE:
+        return True
+    # replied to one of our messages
+    if msg.reply_to_message and msg.reply_to_message.from_user:
+        if msg.reply_to_message.from_user.id == int(BOT_TOKEN.split(":")[0]):
+            return True
+    # @mentioned
+    text = msg.text or msg.caption or ""
+    if _bot_username and f"@{_bot_username}" in text:
+        return True
+    return False
+
+
+def strip_mention(text: str) -> str:
+    if _bot_username:
+        text = text.replace(f"@{_bot_username}", "").strip()
+    return text
+
+
+def escape_md(text: str) -> str:
+    """Try to convert LLM markdown to Telegram MarkdownV2.
+    Falls back gracefully — caller should catch parse errors."""
+    # Telegram MarkdownV2 requires escaping these outside of entities
+    # This is a best-effort converter, not perfect
+    out = text
+
+    # protect code blocks first
+    blocks = []
+    def save_block(m):
+        blocks.append(m.group(0))
+        return f"\x00BLOCK{len(blocks)-1}\x00"
+    out = re.sub(r"```[\s\S]*?```", save_block, out)
+
+    # protect inline code
+    inlines = []
+    def save_inline(m):
+        inlines.append(m.group(0))
+        return f"\x00INLINE{len(inlines)-1}\x00"
+    out = re.sub(r"`[^`]+`", save_inline, out)
+
+    # escape special chars (outside code)
+    for ch in r"\_*[]()~>#+-=|{}.!":
+        out = out.replace(ch, f"\\{ch}")
+
+    # restore bold **text** → *text*
+    out = re.sub(r"\\\*\\\*(.*?)\\\*\\\*", r"*\1*", out)
+    # restore italic _text_ (single)
+    out = re.sub(r"\\_([^\\_]+)\\_", r"_\1_", out)
+
+    # restore code blocks and inline code
+    for i, block in enumerate(blocks):
+        out = out.replace(f"\x00BLOCK{i}\x00", block)
+    for i, inline in enumerate(inlines):
+        out = out.replace(f"\x00INLINE{i}\x00", inline)
+
+    return out
+
+
+async def send_long(msg, text):
+    """Send potentially long text, splitting into multiple messages if needed."""
+    chunks = []
+    while text:
+        if len(text) <= 4096:
+            chunks.append(text)
+            break
+        # split at last newline before 4096
+        cut = text[:4096].rfind("\n")
+        if cut < 100:
+            cut = 4096
+        chunks.append(text[:cut])
+        text = text[cut:].lstrip("\n")
+
+    # first chunk: edit the placeholder
+    first = chunks[0]
+    try:
+        await msg.edit_text(first, parse_mode=ParseMode.MARKDOWN_V2)
+    except Exception:
+        try:
+            await msg.edit_text(first)
+        except Exception:
+            pass
+
+    # remaining chunks: new messages
+    for chunk in chunks[1:]:
+        try:
+            await msg.reply_text(chunk, parse_mode=ParseMode.MARKDOWN_V2)
+        except Exception:
+            await msg.reply_text(chunk)
+
+
 async def stream_reply(msg, messages, model):
-    """Stream LLM response, editing the telegram message as chunks arrive."""
     full = ""
     last_len = 0
     last_t = time.time()
@@ -58,7 +152,7 @@ async def stream_reply(msg, messages, model):
                 full += chunk.choices[0].delta.content
 
             now = time.time()
-            if full and (now - last_t > 1.0 or len(full) - last_len > 80):
+            if full and (now - last_t > 1.2 or len(full) - last_len > 120):
                 try:
                     preview = full[:4000] + "..." if len(full) > 4000 else full + " ▌"
                     await msg.edit_text(preview)
@@ -84,19 +178,21 @@ async def stream_reply(msg, messages, model):
         await msg.edit_text("(empty response)")
         return None
 
-    try:
-        await msg.edit_text(full[:4096])
-    except Exception:
-        pass
+    escaped = escape_md(full)
+    await send_long(msg, escaped)
     return full
 
+
+# --- commands ---
 
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Send me a message and I'll reply using AI.\n"
-        "Send a photo with a caption to ask about images.\n\n"
+        "Send a photo with a caption to ask about images.\n"
+        "Send a voice message to transcribe + respond.\n\n"
+        "In groups, @ me or reply to my messages.\n\n"
         "/model <name> — switch model\n"
-        "/clear — reset conversation\n"
+        "/clear — forget conversation context\n"
         "/help — show this"
     )
 
@@ -115,16 +211,22 @@ async def cmd_model(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_clear(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     histories[update.effective_user.id] = []
-    await update.message.reply_text("Conversation cleared.")
+    await update.message.reply_text("Context cleared — I won't remember previous messages.")
 
+
+# --- message handlers ---
 
 async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
-    if not allowed(uid):
+    if not allowed(uid) or not should_reply(update):
+        return
+
+    text = strip_mention(update.message.text)
+    if not text:
         return
 
     hist = get_hist(uid)
-    hist.append({"role": "user", "content": update.message.text})
+    hist.append({"role": "user", "content": text})
 
     while len(hist) > MAX_HISTORY:
         hist.pop(0)
@@ -140,23 +242,19 @@ async def on_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def on_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
-    log.info("photo from %s, caption=%s", uid, update.message.caption)
-    if not allowed(uid):
+    if not allowed(uid) or not should_reply(update):
         return
 
-    caption = update.message.caption or "What's in this image?"
+    caption = strip_mention(update.message.caption or "") or "What's in this image?"
 
     try:
-        # photos sent as "photo" (compressed) or as "document" (file)
         if update.message.photo:
-            photo = update.message.photo[-1]
-            file = await ctx.bot.get_file(photo.file_id)
+            file = await ctx.bot.get_file(update.message.photo[-1].file_id)
         elif update.message.document and update.message.document.mime_type and update.message.document.mime_type.startswith("image/"):
             file = await ctx.bot.get_file(update.message.document.file_id)
         else:
             return
         raw = await file.download_as_bytearray()
-        # resize to keep API requests small
         img = Image.open(io.BytesIO(raw))
         img.thumbnail((1024, 1024))
         buf = io.BytesIO()
@@ -186,7 +284,55 @@ async def on_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         hist.append({"role": "assistant", "content": reply})
 
 
+async def on_voice(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if not allowed(uid):
+        return
+
+    voice = update.message.voice or update.message.audio
+    if not voice:
+        return
+
+    try:
+        file = await ctx.bot.get_file(voice.file_id)
+        raw = await file.download_as_bytearray()
+        audio_file = io.BytesIO(raw)
+        audio_file.name = "voice.ogg"
+        transcript = await client.audio.transcriptions.create(
+            model="whisper-1", file=audio_file,
+        )
+        text = transcript.text.strip()
+    except Exception as e:
+        # whisper not available on this provider
+        log.warning("transcription failed: %s", e)
+        await update.message.reply_text(
+            "Voice transcription isn't supported by your current API provider.\n"
+            "Try typing your message instead."
+        )
+        return
+
+    if not text:
+        await update.message.reply_text("(couldn't make out the audio)")
+        return
+
+    hist = get_hist(uid)
+    hist.append({"role": "user", "content": text})
+
+    while len(hist) > MAX_HISTORY:
+        hist.pop(0)
+
+    msgs = [{"role": "system", "content": SYSTEM_PROMPT}] + hist
+    model = user_models.get(uid, MODEL)
+
+    placeholder = await update.message.reply_text(f"\U0001f3a4 \"{text}\"\n\n...")
+    reply = await stream_reply(placeholder, msgs, model)
+    if reply:
+        hist.append({"role": "assistant", "content": reply})
+
+
 def main():
+    global _bot_username
+
     if not BOT_TOKEN:
         print("Error: BOT_TOKEN not set.")
         print("Get one from @BotFather on Telegram, then add it to .env")
@@ -207,11 +353,13 @@ def main():
     )
 
     app = Application.builder().token(BOT_TOKEN).build()
+
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_start))
     app.add_handler(CommandHandler("model", cmd_model))
     app.add_handler(CommandHandler("clear", cmd_clear))
-    app.add_handler(MessageHandler(filters.PHOTO | (filters.Document.IMAGE), on_photo))
+    app.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE, on_photo))
+    app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, on_voice))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
 
     async def on_error(update, ctx):
@@ -219,7 +367,13 @@ def main():
 
     app.add_error_handler(on_error)
 
-    log.info("bot started — model=%s", MODEL)
+    async def post_init(application):
+        global _bot_username
+        bot = await application.bot.get_me()
+        _bot_username = bot.username
+        log.info("bot @%s started — model=%s", _bot_username, MODEL)
+
+    app.post_init = post_init
     app.run_polling(drop_pending_updates=True)
 
 
