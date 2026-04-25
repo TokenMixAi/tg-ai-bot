@@ -1,0 +1,56 @@
+{
+  "name": "tokenmix-tg-bot",
+  "version": "0.1.0",
+  "description": "AI chatbot for Telegram with streaming + vision — 155+ models via TokenMix",
+  "type": "module",
+  "main": "bot.js",
+  "bin": {
+    "tokenmix-tg-bot": "./bot.js"
+  },
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "bot.js",
+    "README.md",
+    ".env.example",
+    "LICENSE"
+  ],
+  "keywords": [
+    "telegram",
+    "telegram-bot",
+    "ai",
+    "ai-bot",
+    "llm",
+    "openai",
+    "chatbot",
+    "tokenmix",
+    "vision",
+    "gpt",
+    "gpt-5",
+    "claude",
+    "gemini",
+    "deepseek",
+    "streaming"
+  ],
+  "author": "TokenMix <hello@tokenmix.ai>",
+  "license": "MIT",
+  "homepage": "https://tokenmix.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TokenMixAi/tg-ai-bot.git",
+    "directory": "nodejs"
+  },
+  "bugs": {
+    "url": "https://github.com/TokenMixAi/tg-ai-bot/issues"
+  },
+  "funding": "https://tokenmix.ai",
+  "dependencies": {
+    "dotenv": "^16.3.0",
+    "openai": "^4.0.0",
+    "telegraf": "^4.16.0"
+  }
+}

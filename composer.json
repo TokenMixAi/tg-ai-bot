@@ -1,0 +1,42 @@
+{
+    "name": "tokenmixai/tokenmix-php",
+    "description": "PHP client for TokenMix — one API key for GPT-5, Claude, Gemini, DeepSeek and 155+ LLMs",
+    "type": "library",
+    "license": "MIT",
+    "homepage": "https://tokenmix.ai",
+    "keywords": [
+        "tokenmix",
+        "ai",
+        "llm",
+        "openai",
+        "gpt",
+        "claude",
+        "gemini",
+        "deepseek",
+        "chat",
+        "api"
+    ],
+    "authors": [
+        {
+            "name": "TokenMix",
+            "email": "hello@tokenmix.ai",
+            "homepage": "https://tokenmix.ai"
+        }
+    ],
+    "support": {
+        "issues": "https://github.com/TokenMixAi/tg-ai-bot/issues",
+        "source": "https://github.com/TokenMixAi/tg-ai-bot/tree/main/php",
+        "docs": "https://tokenmix.ai/docs"
+    },
+    "require": {
+        "php": ">=8.0",
+        "ext-curl": "*",
+        "ext-json": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "TokenMix\\": "php/src/"
+        }
+    },
+    "minimum-stability": "stable"
+}

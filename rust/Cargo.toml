@@ -1,0 +1,23 @@
+[package]
+name = "tokenmix-cli"
+version = "0.1.0"
+edition = "2021"
+authors = ["TokenMix <hello@tokenmix.ai>"]
+description = "CLI for TokenMix — one API key for GPT-5, Claude, Gemini, DeepSeek and 155+ LLMs"
+homepage = "https://tokenmix.ai"
+repository = "https://github.com/TokenMixAi/tg-ai-bot"
+documentation = "https://tokenmix.ai/docs"
+readme = "README.md"
+keywords = ["llm", "openai", "tokenmix", "cli", "ai"]
+categories = ["command-line-utilities", "api-bindings"]
+license = "MIT"
+
+[dependencies]
+clap = { version = "4", features = ["derive", "env"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+[[bin]]
+name = "tokenmix"
+path = "src/main.rs"
