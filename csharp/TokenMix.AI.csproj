@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>TokenMix</RootNamespace>
+    <AssemblyName>TokenMix</AssemblyName>
+
+    <PackageId>TokenMix.AI</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>TokenMix</Authors>
+    <Company>TokenMix</Company>
+    <Title>TokenMix .NET Client</Title>
+    <Description>.NET client for TokenMix — one API key for GPT-5, Claude, Gemini, DeepSeek and 155+ LLMs through a single OpenAI-compatible endpoint. Get a free API key at https://tokenmix.ai</Description>
+    <Copyright>Copyright (c) 2026 TokenMix</Copyright>
+
+    <PackageProjectUrl>https://tokenmix.ai</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/TokenMixAi/tg-ai-bot</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageTags>tokenmix;ai;llm;openai;gpt;gpt-5;claude;gemini;deepseek;chatgpt;openai-compatible</PackageTags>
+
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+</Project>
